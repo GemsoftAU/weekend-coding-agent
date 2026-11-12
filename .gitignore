@@ -1,0 +1,130 @@
+# =========================
+# Python basics
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================
+# Virtual environments
+# =========================
+venv/
+.env/
+.venv/
+Scripts/
+
+# =========================
+# Environment & secrets
+# =========================
+.env
+.env.*
+*.env
+secrets.json
+config.local.yaml
+config.local.yml
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+debug.log
+
+# =========================
+# Data & databases
+# =========================
+*.sqlite3
+*.db
+data/
+datasets/
+*.csv
+*.parquet
+*.jsonl
+
+# =========================
+# ML / AI artifacts
+# =========================
+models/
+checkpoints/
+runs/
+outputs/
+predictions/
+experiments/
+
+# Hugging Face cache
+.cache/huggingface/
+huggingface/
+hf_cache/
+
+# Weights & large files
+*.bin
+*.pt
+*.pth
+*.onnx
+*.h5
+*.ckpt
+
+# =========================
+# Jupyter / notebooks
+# =========================
+.ipynb_checkpoints
+
+# =========================
+# Testing & coverage
+# =========================
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Type checking / linting
+# =========================
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# Build / packaging
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+,cursor/
+.idea/
+
+# Gemini CLI Caches & Session Data
+.gemini/
+gemini_history.json
+.gemini_context/
+
+# =========================
+# OS junk
+# =========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+NTUSER.DAT*
+
+# =========================
+# Temp files
+# =========================
+tmp/
+temp/
+*.tmp
+
+# =========================
+# Misc. folders
+# =========================
+__ARCHIVE/
+__HELP/
+docs/
+# =========================
+# Optional: MSP multi-client setups
+# =========================
+clients/
+tenants/

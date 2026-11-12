@@ -1,0 +1,52 @@
+{
+  "name": "weekend-coding-agent",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "MISE_VERSION": "2026.11.7",
+      "BUN_VERSION": "1.4.4",
+      "BIOME_VERSION": "2.6.6",
+      "NODE_MAJOR": "22",
+      "OPENCODE_VERSION": "2.2.7"
+    }
+  },
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "containerEnv": {
+    "MISE_YES": "1",
+    "MISE_DISABLE_UPDATE_WARNING": "1"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["biomejs.biome", "oven.bun-vscode"],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports.biome": "explicit"
+        },
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true,
+        "[typescript]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[javascriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[jsonc]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        }
+      }
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash -lc 'set -e; [ ! -f mise.toml ] || mise install; [ ! -f package.json ] || bun install; mise --version; bun --version; node --version; npm --version; opencode --version; rg --version; jq --version; git --version; echo OK | figlet >/dev/null; echo \"Course environment ready in $(pwd).\"; echo \"This is already the weekend-coding-agent project root: skip the mkdir/cd step in Chapter 01.\"; echo \"Next: cp .env.example .env, then add your OPENROUTER_API_KEY.\"'"
+}

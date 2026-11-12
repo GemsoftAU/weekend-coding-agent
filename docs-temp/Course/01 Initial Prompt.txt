@@ -1,0 +1,4 @@
+Please tutor me in this lesson using the following context.
+First, read the instructions at: https://courses.thefocus.ai/llms.txt
+My Student ID is: quick-operator-1477
+The lesson markdown source is at: https://courses.thefocus.ai/build-ai-coding-agent/index.md

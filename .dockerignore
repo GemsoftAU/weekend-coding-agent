@@ -1,0 +1,46 @@
+# Version control and editor metadata
+.git/
+.vscode/
+.idea/
+.cursor/
+*.code-workspace
+
+# Dependencies, build output, and test artifacts
+node_modules/
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Course runtime state and generated artifacts
+.session_logs/
+reports/
+images/
+videos/
+output/
+docs/
+docs-temp/
+workspaces/
+*.jsonl
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+secrets.json
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+.tmp/
+tmp/
+*.tmp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+nul
