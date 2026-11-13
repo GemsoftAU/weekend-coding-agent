@@ -1,2 +1,19 @@
 [tools]
 bun = "latest"
+biome = "latest"
+
+[tasks.test]
+description = "Run the test suite"
+run = "bun test"
+
+[tasks.lint]
+description = "Lint and format check"
+run = "biome check"
+
+[tasks.fmt]
+description = "Apply formatting"
+run = "biome format --write ."
+
+[tasks.check]
+description = "Lint plus tests - the verification gate"
+run = "biome check && bun test"

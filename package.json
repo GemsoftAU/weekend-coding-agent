@@ -1,0 +1,14 @@
+{
+  "name": "weekend-coding-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "bootstrap": "bun run bootstrap.ts",
+    "test": "bun test",
+    "lint": "biome check",
+    "fmt": "biome format --write .",
+    "check": "biome check && bun test"
+  }
+}
