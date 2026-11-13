@@ -35,14 +35,14 @@ export function scrubSecrets(text: string): string {
 
 /**
  * Commands that must never reach the shell.
- * NOTE: this is a blacklist over an opaque command string, so it is a weak boundary.
- * It also blocks ordinary words (a language keyword, a shell builtin) which means
- * legitimate commands get rejected. Structured tools are the real fix.
+ * NOTE: this is still a blacklist over an opaque command string, so it remains a weak
+ * boundary with false positives. The structured tools are the real fix; this stays as
+ * a backstop for the bash escape hatch.
  */
 const WORD = [101, 110, 118].map((c) => String.fromCharCode(c)).join("");
 const FORBIDDEN_PATTERNS = [
 	new RegExp(`\\${SECRET_FILE}`),
-	new RegExp(`\\bprint${[101, 110, 118].map((c) => String.fromCharCode(c)).join("")}\\b`, "i"),
+	new RegExp(`\\bprint${WORD}\\b`, "i"),
 	new RegExp(`\\b${WORD}\\b`, "i"),
 	new RegExp("\\b" + ("ex" + "port") + "\\b", "i"),
 	/\/proc\/.*\/environ/i,
@@ -68,4 +68,14 @@ export async function runGuardedBash(cmd: string, runner: Runner = defaultRunner
 		const err = e as { stderr?: { toString(): string }; message?: string };
 		return scrubSecrets(err?.stderr?.toString() || err?.message || "Command failed");
 	}
+}
+
+export async function runBash(cmd: string, runner: Runner = defaultRunner): Promise<string> {
+	const out = await runGuardedBash(cmd, runner);
+	return out.trim() === "" ? "(no output)" : out;
+}
+
+export async function gitDiff(runner: Runner = defaultRunner): Promise<string> {
+	const out = await runGuardedBash("git diff", runner);
+	return out.trim() === "" ? "No unstaged changes." : out;
 }

@@ -1,10 +1,14 @@
 import { runTurn } from "./agent";
 import { loadPrompt } from "./lib/prompts";
 import type { Message } from "./lib/types";
+import { selectTools } from "./tools";
 
 async function main() {
 	const template = loadPrompt("default");
 	const agentName = template.frontmatter.name;
+
+	// Declared capability and actual capability must be the same list.
+	const tools = selectTools(template.frontmatter.tools);
 
 	console.log("AI Coding Assistant (type 'exit' to quit)");
 	console.log(`Prompt: ${agentName} | Tools: ${template.frontmatter.tools.join(", ")}`);
@@ -23,7 +27,7 @@ async function main() {
 			history,
 			undefined,
 			undefined,
-			undefined,
+			tools,
 			{ info: (m) => console.log(m), error: (m) => console.error(m) },
 			agentName,
 		);
@@ -38,7 +42,7 @@ async function main() {
 	}
 }
 
-main().catch((e) => {
-	console.error(e);
+main().catch((error) => {
+	console.error(error);
 	process.exit(1);
 });

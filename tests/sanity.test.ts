@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseList, parsePrompt } from "../src/lib/prompts";
-import { TOOLS } from "../src/tools";
+import { selectTools, TOOLS } from "../src/tools";
 
 describe("prompt parsing", () => {
 	test("splits frontmatter from body", () => {
@@ -35,17 +35,59 @@ describe("prompt parsing", () => {
 	});
 });
 
-describe("tool schema", () => {
-	test("exposes bash and run_check", () => {
-		expect(TOOLS.map((t) => t.function.name)).toEqual(["bash", "run_check"]);
+describe("tool registry", () => {
+	test("registers the full structured toolset", () => {
+		expect(TOOLS.map((t) => t.function.name)).toEqual([
+			"list_files",
+			"read_file",
+			"search_files",
+			"write_file",
+			"replace_in_file",
+			"run_check",
+			"git_diff",
+			"bash",
+		]);
+	});
+
+	test("every tool has a description the model can choose from", () => {
+		for (const tool of TOOLS) {
+			expect(tool.function.description.length).toBeGreaterThan(20);
+		}
+	});
+
+	test("bash is documented as a last resort", () => {
+		const bash = TOOLS.find((t) => t.function.name === "bash");
+		expect(bash?.function.description.toLowerCase()).toContain("last resort");
 	});
 
 	test("bash requires a command argument", () => {
 		const bash = TOOLS.find((t) => t.function.name === "bash");
 		expect(bash?.function.parameters).toEqual({
 			type: "object",
-			properties: { command: { type: "string" } },
+			properties: {
+				command: {
+					type: "string",
+					description:
+						"The shell command to run. Must not reference secret files or shell variables.",
+				},
+			},
 			required: ["command"],
 		});
+	});
+});
+
+describe("selectTools", () => {
+	test("returns only the declared tools, in declared order", () => {
+		const selected = selectTools(["read_file", "run_check"]);
+		expect(selected.map((t) => t.function.name)).toEqual(["read_file", "run_check"]);
+	});
+
+	test("a model cannot reach a tool its prompt does not declare", () => {
+		const selected = selectTools(["read_file"]);
+		expect(selected.some((t) => t.function.name === "bash")).toBe(false);
+	});
+
+	test("an unknown declared tool is a startup error, not a silent omission", () => {
+		expect(() => selectTools(["read_file", "teleport"])).toThrow("Unknown tool");
 	});
 });

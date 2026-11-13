@@ -1,3 +1,7 @@
+// Agent turn runner. runTurn() drives one conversation turn: it sends the
+// message history to the LLM, executes any requested tool calls (in parallel),
+// and feeds the results back until the model produces a final answer,
+// then returns the updated history and accumulated token usage.
 import { callLLM } from "./lib/api";
 import type { ApiCaller, Logger, Message, ToolExecutor, ToolSchema, TurnResult } from "./lib/types";
 import { executeTool, TOOLS } from "./tools";
