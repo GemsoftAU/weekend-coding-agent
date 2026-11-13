@@ -5,14 +5,6 @@
 		"includes": ["src/**/*.ts", "tests/**/*.ts", "*.ts"],
 		"ignoreUnknown": true
 	},
-	"overrides": [
-		{
-			"includes": ["bootstrap.ts"],
-			"linter": { "enabled": false },
-			"formatter": { "enabled": false },
-			"assist": { "enabled": false }
-		}
-	],
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab",
