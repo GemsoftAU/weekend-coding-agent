@@ -3,6 +3,12 @@
 // and feeds the results back until the model produces a final answer,
 // then returns the updated history and accumulated token usage.
 import { callLLM } from "./lib/api";
+import {
+	estimateConversationTokens,
+	recordUsage,
+	type SessionState,
+	sessionStatusLine,
+} from "./lib/session";
 import type { ApiCaller, Logger, Message, ToolExecutor, ToolSchema, TurnResult } from "./lib/types";
 import { executeTool, TOOLS } from "./tools";
 
@@ -13,11 +19,14 @@ export async function runTurn(
 	tools: ToolSchema[] = TOOLS,
 	logger?: Logger,
 	agentName = "default",
+	session?: SessionState | null,
 ): Promise<TurnResult> {
 	const currentMessages: Message[] = [...history];
 	const usage = { prompt_tokens: 0, completion_tokens: 0 };
+	let apiCallNumber = 0;
 
 	while (true) {
+		apiCallNumber++;
 		const response = await apiCaller(currentMessages, tools);
 
 		if (response.error) {
@@ -28,6 +37,7 @@ export async function runTurn(
 		// Accumulate, never overwrite: every iteration of the loop costs tokens.
 		usage.prompt_tokens += response.usage?.prompt_tokens ?? 0;
 		usage.completion_tokens += response.usage?.completion_tokens ?? 0;
+		if (session) recordUsage(session, response.usage);
 
 		const m = response.choices[0].message;
 
@@ -64,8 +74,22 @@ export async function runTurn(
 		} else {
 			currentMessages.push({ role: "assistant", content: m.content });
 			logger?.info(m.content ?? "");
-			break;
 		}
+
+		// Log cost right after the response it came from, so the bill follows the output.
+		if (session?.stats) {
+			const inTok = response.usage?.prompt_tokens ?? 0;
+			const outTok = response.usage?.completion_tokens ?? 0;
+			const callCost = inTok * session.stats.cost.prompt + outTok * session.stats.cost.completion;
+			logger?.info(`[API ${apiCallNumber}] ${inTok} in / ${outTok} out | $${callCost.toFixed(6)}`);
+		}
+
+		if (!m.tool_calls || m.tool_calls.length === 0) break;
+	}
+
+	// Status after the turn: how full the context is and what the session has cost.
+	if (logger && session?.stats) {
+		logger.info(sessionStatusLine(session, estimateConversationTokens(currentMessages)));
 	}
 
 	return { messages: currentMessages, usage };

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { runTurn } from "../src/agent";
-import type { CompletionResponse, Message, ToolSchema } from "../src/lib/types";
+import type { ModelStats } from "../src/lib/api";
+import { createSession } from "../src/lib/session";
+import type { CompletionResponse, Logger, Message, ToolSchema } from "../src/lib/types";
 
 /** Scripted fake: each call returns the next canned response and records its input. */
 function scriptedApi(responses: CompletionResponse[]) {
@@ -115,5 +117,103 @@ describe("runTurn", () => {
 		const history: Message[] = [{ role: "user", content: "hi" }];
 		await runTurn(history, api.caller, async () => "x");
 		expect(history).toHaveLength(1);
+	});
+
+	const stats: ModelStats = {
+		name: "Test Model",
+		contextLength: 1048576,
+		cost: { prompt: 0.001, completion: 0.002 },
+	};
+
+	test("logs cost per API call using the response usage and stats prices", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			logger,
+			"default",
+			createSession(stats),
+		);
+
+		// Two API calls, one cost line each: 10*0.001 + 5*0.002 = 0.02, 20*0.001 + 3*0.002 = 0.026.
+		expect(lines.filter((l) => l.startsWith("[API "))).toEqual([
+			"[API 1] 10 in / 5 out | $0.020000",
+			"[API 2] 20 in / 3 out | $0.026000",
+		]);
+	});
+
+	test("cost lines follow the output of the round they belong to", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			logger,
+			"default",
+			createSession(stats),
+		);
+
+		// Round 1: tool call line, then its result, then its bill. Round 2: answer, then its bill.
+		const order = lines.map((l) =>
+			l.startsWith("[API 1]") ? "bill1" : l.startsWith("[API 2]") ? "bill2" : l,
+		);
+		expect(order.indexOf("file.txt")).toBeLessThan(order.indexOf("bill1"));
+		expect(order.indexOf("Done.")).toBeLessThan(order.indexOf("bill2"));
+	});
+
+	test("omits cost lines when no model stats are available", async () => {
+		const api = scriptedApi([textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn([], api.caller, async () => "x", undefined, logger, "default", null);
+
+		expect(lines.filter((l) => l.startsWith("[API "))).toHaveLength(0);
+	});
+
+	test("logs a session status line with the accumulated cost after the turn", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+		const session = createSession(stats);
+
+		await runTurn([], api.caller, async () => "file.txt", undefined, logger, "default", session);
+
+		// Totals across both calls: 30 in / 8 out, cost 0.02 + 0.026 = 0.046.
+		expect(session.promptTokens).toBe(30);
+		expect(session.completionTokens).toBe(8);
+		expect(session.totalCost).toBeCloseTo(0.046);
+
+		const status = lines.find((l) => l.startsWith("[Session]"));
+		expect(status).toBeDefined();
+		expect(status).toContain("Context:");
+		expect(status).toContain("Cost: $0.046000");
+	});
+
+	test("the session status line appears after the final answer", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			logger,
+			"default",
+			createSession(stats),
+		);
+
+		expect(lines.indexOf("Done.")).toBeLessThan(lines.findIndex((l) => l.startsWith("[Session]")));
 	});
 });
