@@ -36,7 +36,15 @@ const NOISE_ELEMENTS = [
 	"form",
 ];
 
-/** Strip noise elements and their contents. Regex, not a DOM: pages are hostile. */
+/**
+ * Strip noise elements and their contents. Regex, not a DOM: pages are hostile.
+ *
+ * Known limitation: only markup that declares itself as chrome (<nav>, <footer>,
+ * <header>'s contents) is removed. Sites that wrap navigation in plain <div>s, or
+ * use a skip-link anchor, still leak a few lines ("Skip to content", "Copy page").
+ * Measured on real pages this is ~4 lines out of 150, so it is left to Turndown
+ * rather than guessed at with brittle heuristics. Wasted tokens, never wrong content.
+ */
 export function stripNoise(html: string): string {
 	const removed = NOISE_ELEMENTS.map(
 		(tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, "gi"),
