@@ -29,6 +29,7 @@ config.local.yml
 *.log
 logs/
 debug.log
+.session_logs/
 
 # =========================
 # Data & databases

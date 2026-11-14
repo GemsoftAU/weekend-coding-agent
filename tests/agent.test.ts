@@ -217,3 +217,90 @@ describe("runTurn", () => {
 		expect(lines.indexOf("Done.")).toBeLessThan(lines.findIndex((l) => l.startsWith("[Session]")));
 	});
 });
+
+describe("runTurn session logging", () => {
+	/** In-memory SessionLog so the agent tests never touch the filesystem. */
+	function memoryLog() {
+		const entries: Array<{ agentName: string; message: Message }> = [];
+		const log = {
+			logFile: "memory.jsonl",
+			sessionId: "s1",
+			parentId: null,
+			agentName: "main",
+			log(message: Message) {
+				entries.push({ agentName: "main", message });
+			},
+			child(agentName: string, parentId?: string) {
+				return { ...log, agentName, parentId: parentId ?? "s1", sessionId: "s2" };
+			},
+		};
+		return { log, entries };
+	}
+
+	test("records the assistant tool call, the tool result, and the answer", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const memory = memoryLog();
+
+		await runTurn(
+			[{ role: "user", content: "list files" }],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			undefined,
+			"default",
+			null,
+			memory.log,
+		);
+
+		expect(memory.entries.map((e) => e.message.role)).toEqual(["assistant", "tool", "assistant"]);
+		// The tool call is kept with its id, or the log cannot be replayed.
+		expect(memory.entries[0].message.tool_calls?.[0].function.name).toBe("bash");
+		expect(memory.entries[1].message.tool_call_id).toBe("call_1");
+		expect(memory.entries[1].message.content).toBe("file.txt");
+		expect(memory.entries[2].message.content).toBe("Done.");
+	});
+
+	test("logs a plain text reply with no tool calls", async () => {
+		const api = scriptedApi([textReply]);
+		const memory = memoryLog();
+
+		await runTurn([], api.caller, async () => "x", undefined, undefined, "d", null, memory.log);
+
+		expect(memory.entries.map((e) => e.message.content)).toEqual(["Done."]);
+	});
+
+	test("no session log means no logging and no crash", async () => {
+		const api = scriptedApi([textReply]);
+		const result = await runTurn(
+			[],
+			api.caller,
+			async () => "x",
+			undefined,
+			undefined,
+			"d",
+			null,
+			null,
+		);
+		expect(result.messages.at(-1)?.content).toBe("Done.");
+	});
+
+	test("the log mirrors the final history, minus the user message runTurn was given", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const memory = memoryLog();
+
+		const result = await runTurn(
+			[{ role: "user", content: "list files" }],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			undefined,
+			"default",
+			null,
+			memory.log,
+		);
+
+		// Everything the model produced or saw is in the log, in order.
+		const logged = memory.entries.map((e) => e.message);
+		expect(logged).toEqual(result.messages.slice(1));
+	});
+});

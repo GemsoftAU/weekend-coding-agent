@@ -3,6 +3,7 @@
 // and feeds the results back until the model produces a final answer,
 // then returns the updated history and accumulated token usage.
 import { callLLM } from "./lib/api";
+import type { SessionLog } from "./lib/logger";
 import {
 	estimateConversationTokens,
 	recordUsage,
@@ -20,6 +21,7 @@ export async function runTurn(
 	logger?: Logger,
 	agentName = "default",
 	session?: SessionState | null,
+	sessionLog?: SessionLog | null,
 ): Promise<TurnResult> {
 	const currentMessages: Message[] = [...history];
 	const usage = { prompt_tokens: 0, completion_tokens: 0 };
@@ -52,6 +54,9 @@ export async function runTurn(
 				logger?.info(`$ ${toolCall.function.name} ${toolCall.function.arguments}`);
 			}
 
+			// The assistant tool_calls message, then each result, in call order.
+			sessionLog?.log({ role: "assistant", content: m.content, tool_calls: m.tool_calls });
+
 			const toolResults = await Promise.all(
 				m.tool_calls.map(async (toolCall) => {
 					let content: string;
@@ -71,8 +76,10 @@ export async function runTurn(
 			);
 
 			currentMessages.push(...toolResults);
+			for (const toolResult of toolResults) sessionLog?.log(toolResult);
 		} else {
 			currentMessages.push({ role: "assistant", content: m.content });
+			sessionLog?.log({ role: "assistant", content: m.content });
 			logger?.info(m.content ?? "");
 		}
 
