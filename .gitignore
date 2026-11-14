@@ -129,6 +129,12 @@ temp/
 __ARCHIVE/
 __HELP/
 docs/
+
+# =========================
+# Misc. files
+# =========================
+!.env.example
+
 # =========================
 # Optional: MSP multi-client setups
 # =========================
