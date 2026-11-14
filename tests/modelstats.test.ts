@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { fetchModelStats, MODEL, MODELS_API, resetModelStatsCache } from "../src/lib/api";
+import {
+	fetchModelStats,
+	MODEL,
+	MODELS_API,
+	resetModelStatsCache,
+	resolveModel,
+} from "../src/lib/api";
 
 const TEST_MODEL_NAME = "Fake: Test Model";
 
@@ -68,5 +74,29 @@ describe("fetchModelStats", () => {
 			throw new Error("network down");
 		}) as typeof fetch;
 		expect(await fetchModelStats(impl)).toBeNull();
+	});
+});
+
+describe("resolveModel (AGENT_MODEL is the single source of truth)", () => {
+	test("returns AGENT_MODEL when it is set", () => {
+		expect(resolveModel({ AGENT_MODEL: "qwen/qwen3.8-27b" })).toBe("qwen/qwen3.8-27b");
+	});
+
+	test("falls back to the default when AGENT_MODEL is unset", () => {
+		expect(resolveModel({})).toBe("deepseek/deepseek-v4.1-flash-1017");
+	});
+
+	test("falls back to the default when AGENT_MODEL is blank", () => {
+		expect(resolveModel({ AGENT_MODEL: "   " })).toBe("deepseek/deepseek-v4.1-flash-1017");
+	});
+
+	test("trims surrounding whitespace from AGENT_MODEL", () => {
+		expect(resolveModel({ AGENT_MODEL: "  qwen/qwen3.8-27b  " })).toBe("qwen/qwen3.8-27b");
+	});
+
+	test("MODEL is derived from the real environment via resolveModel", () => {
+		expect(typeof MODEL).toBe("string");
+		expect(MODEL.length).toBeGreaterThan(0);
+		expect(MODEL).toBe(resolveModel());
 	});
 });

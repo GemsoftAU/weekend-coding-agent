@@ -2,7 +2,27 @@ import type { ApiCaller, CompletionResponse, Message, ToolSchema } from "./types
 
 export const API = "https://openrouter.ai/api/v1/chat/completions";
 export const MODELS_API = "https://openrouter.ai/api/v1/models";
-export const MODEL = process.env.AGENT_MODEL ?? "deepseek/deepseek-v4.1-flash-1017";
+
+/**
+ * Fallback model, used only when AGENT_MODEL is not set, so the agent can
+ * still start without a .env. It is not the source of truth: the AGENT_MODEL
+ * environment variable (typically from .env) is.
+ */
+const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017";
+
+/**
+ * Resolve which model the agent runs on. The AGENT_MODEL environment variable
+ * is the single source of truth; DEFAULT_MODEL is only a fallback for when it
+ * is unset or blank. `env` is injectable so this stays unit-testable without
+ * touching the real process environment.
+ */
+export function resolveModel(env: Record<string, string | undefined> = process.env): string {
+	const configured = env.AGENT_MODEL?.trim();
+	return configured || DEFAULT_MODEL;
+}
+
+/** The model this agent runs on, pulled from AGENT_MODEL at startup. */
+export const MODEL = resolveModel();
 
 export interface ModelStats {
 	name: string;
