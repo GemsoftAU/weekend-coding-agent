@@ -9,5 +9,11 @@
     "lint": "biome check",
     "fmt": "biome format --write .",
     "check": "biome check && bun test"
+  },
+  "dependencies": {
+    "turndown": "^7.2.5"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
   }
 }

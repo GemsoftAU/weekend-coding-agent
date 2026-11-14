@@ -8,6 +8,7 @@ import {
 	writeFileContent,
 } from "./files";
 import { gitDiff, runBash } from "./system";
+import { downloadUrl, tavilySearch } from "./web";
 
 /** Thrown for bad tool arguments so the loop can hand the problem back to the model. */
 export class ToolArgsError extends Error {}
@@ -184,6 +185,36 @@ export const TOOLS: ToolSchema[] = [
 	{
 		type: "function",
 		function: {
+			name: "download_url",
+			description:
+				"Download a URL and convert it to markdown. Markdown is far more token-efficient than raw HTML. Use it on a search result URL to read the whole page.",
+			parameters: {
+				type: "object",
+				properties: {
+					url: { type: "string", description: "Absolute http(s) URL to download" },
+				},
+				required: ["url"],
+			},
+		},
+	},
+	{
+		type: "function",
+		function: {
+			name: "tavily_search",
+			description:
+				"Search the web via Tavily. Returns an AI summary plus ranked sources with URLs. Prefer specific queries; follow up with download_url to read a source.",
+			parameters: {
+				type: "object",
+				properties: {
+					query: { type: "string", description: "What to search for" },
+				},
+				required: ["query"],
+			},
+		},
+	},
+	{
+		type: "function",
+		function: {
 			name: "bash",
 			description:
 				"Last resort. Run a shell command when no structured tool fits (installing packages, starting a server, git beyond diffing). Never use this to read or write files that read_file or replace_in_file can handle.",
@@ -244,6 +275,10 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
 				);
 			case "run_check":
 				return await runBash("mise run check");
+			case "download_url":
+				return await downloadUrl(stringArg(args, "url"));
+			case "tavily_search":
+				return await tavilySearch(stringArg(args, "query"));
 			case "git_diff":
 				return await gitDiff();
 			default:

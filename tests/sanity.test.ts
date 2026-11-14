@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseList, parsePrompt } from "../src/lib/prompts";
+import { loadPrompt, parseList, parsePrompt } from "../src/lib/prompts";
 import { selectTools, TOOLS } from "../src/tools";
 
 describe("prompt parsing", () => {
@@ -45,6 +45,8 @@ describe("tool registry", () => {
 			"replace_in_file",
 			"run_check",
 			"git_diff",
+			"download_url",
+			"tavily_search",
 			"bash",
 		]);
 	});
@@ -89,5 +91,37 @@ describe("selectTools", () => {
 
 	test("an unknown declared tool is a startup error, not a silent omission", () => {
 		expect(() => selectTools(["read_file", "teleport"])).toThrow("Unknown tool");
+	});
+});
+
+describe("shipped prompts", () => {
+	// A prompt that declares a tool we do not have is a startup crash, so every
+	// prompt file must resolve against the registry.
+	for (const name of ["default", "tech-researcher"]) {
+		test(`${name}.md declares only tools that exist`, () => {
+			const template = loadPrompt(name);
+			expect(template.frontmatter.name).toBe(name);
+			const tools = selectTools(template.frontmatter.tools);
+			expect(tools.length).toBe(template.frontmatter.tools.length);
+		});
+	}
+
+	test("tech-researcher can search the web and write reports", () => {
+		const { frontmatter } = loadPrompt("tech-researcher");
+		expect(frontmatter.tools).toContain("tavily_search");
+		expect(frontmatter.tools).toContain("download_url");
+		expect(frontmatter.tools).toContain("write_file");
+	});
+
+	test("tech-researcher has a description the dispatcher can route on", () => {
+		const { frontmatter } = loadPrompt("tech-researcher");
+		expect(frontmatter.name).toBe("tech-researcher");
+		expect(frontmatter.description.length).toBeGreaterThan(40);
+	});
+
+	test("tech-researcher is told to write to the reports directory", () => {
+		const { body } = loadPrompt("tech-researcher");
+		expect(body).toContain("reports/");
+		expect(body).toContain("YYYY-MM-DD");
 	});
 });
