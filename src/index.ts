@@ -5,6 +5,7 @@ import { type CommandContext, parseCommand, runCommand } from "./lib/commands";
 import { createSessionLogger, type SessionLog } from "./lib/logger";
 import { loadPrompt } from "./lib/prompts";
 import { createSession } from "./lib/session";
+import { createSpinner } from "./lib/spinner";
 import type { Message } from "./lib/types";
 import { selectTools } from "./tools";
 
@@ -50,6 +51,9 @@ async function main() {
 	const history: Message[] = [{ role: "system", content: template.body }];
 	// The system prompt is part of the record: a log you cannot replay is not a log.
 	sessionLog?.log(history[0]);
+
+	// Only animates on a TTY; piped or redirected output gains no escape codes.
+	const spinner = createSpinner();
 
 	for await (const line of console) {
 		const input = line.trim();
@@ -101,6 +105,8 @@ async function main() {
 			agentName,
 			session,
 			sessionLog,
+			// The spinner is created once and reused: it idles silently between turns.
+			{ spinner },
 		);
 
 		history.length = 0;

@@ -10,8 +10,14 @@ import {
 	type SessionState,
 	sessionStatusLine,
 } from "./lib/session";
+import type { Spinner } from "./lib/spinner";
 import type { ApiCaller, Logger, Message, ToolExecutor, ToolSchema, TurnResult } from "./lib/types";
 import { executeTool, TOOLS } from "./tools";
+
+export interface RunTurnOptions {
+	/** Animated indicator shown while waiting on the API. Optional, TTY-only. */
+	spinner?: Spinner | null;
+}
 
 export async function runTurn(
 	history: Message[],
@@ -22,14 +28,24 @@ export async function runTurn(
 	agentName = "default",
 	session?: SessionState | null,
 	sessionLog?: SessionLog | null,
+	options: RunTurnOptions = {},
 ): Promise<TurnResult> {
 	const currentMessages: Message[] = [...history];
 	const usage = { prompt_tokens: 0, completion_tokens: 0 };
 	let apiCallNumber = 0;
+	const spinner = options.spinner ?? null;
 
 	while (true) {
 		apiCallNumber++;
-		const response = await apiCaller(currentMessages, tools);
+		// Spin only while the request is in flight: the moment a token arrives the
+		// glyph would collide with the model's own output.
+		let response: Awaited<ReturnType<ApiCaller>>;
+		try {
+			spinner?.start();
+			response = await apiCaller(currentMessages, tools);
+		} finally {
+			spinner?.stop();
+		}
 
 		if (response.error) {
 			logger?.error(`[${agentName}] API error: ${response.error.message}`);

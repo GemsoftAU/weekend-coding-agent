@@ -218,6 +218,96 @@ describe("runTurn", () => {
 	});
 });
 
+describe("runTurn spinner", () => {
+	/** Records start/stop ordering without needing a TTY or real timers. */
+	function fakeSpinner() {
+		const events: string[] = [];
+		let active = false;
+		return {
+			events,
+			spinner: {
+				start() {
+					active = true;
+					events.push("start");
+				},
+				stop() {
+					active = false;
+					events.push("stop");
+				},
+				get active() {
+					return active;
+				},
+			},
+		};
+	}
+
+	test("spins once per API call and is idle when the turn ends", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const fake = fakeSpinner();
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => "file.txt",
+			undefined,
+			undefined,
+			"default",
+			null,
+			null,
+			{ spinner: fake.spinner },
+		);
+
+		// Two round trips, so two start/stop pairs, and it must end stopped.
+		expect(fake.events).toEqual(["start", "stop", "start", "stop"]);
+		expect(fake.spinner.active).toBe(false);
+	});
+
+	test("the spinner stops before the response is logged, so the glyph never lands in the output", async () => {
+		const api = scriptedApi([textReply]);
+		const fake = fakeSpinner();
+		const lines: string[] = [];
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => "x",
+			undefined,
+			{ info: (m) => lines.push(m), error: () => {} },
+			"default",
+			null,
+			null,
+			{ spinner: fake.spinner },
+		);
+
+		// Last spinner event is a stop, so nothing is animating while output prints.
+		expect(fake.events.at(-1)).toBe("stop");
+		expect(lines).toContain("Done.");
+	});
+
+	test("stops the spinner even when the API call throws", async () => {
+		const fake = fakeSpinner();
+		const boom = async () => {
+			throw new Error("network down");
+		};
+
+		expect(
+			runTurn([], boom, async () => "x", undefined, undefined, "d", null, null, {
+				spinner: fake.spinner,
+			}),
+		).rejects.toThrow("network down");
+
+		// A leaked interval would keep writing to the terminal forever.
+		expect(fake.events).toEqual(["start", "stop"]);
+		expect(fake.spinner.active).toBe(false);
+	});
+
+	test("works with no spinner supplied", async () => {
+		const api = scriptedApi([textReply]);
+		const result = await runTurn([], api.caller, async () => "x");
+		expect(result.messages.at(-1)?.content).toBe("Done.");
+	});
+});
+
 describe("runTurn session logging", () => {
 	/** In-memory SessionLog so the agent tests never touch the filesystem. */
 	function memoryLog() {
