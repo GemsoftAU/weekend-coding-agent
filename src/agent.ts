@@ -7,6 +7,7 @@
 // `run_agent` is therefore not a special case in the loop: it is a tool whose
 // implementation happens to be a nested runTurn().
 import { callLLM } from "./lib/api";
+import { compactHistory, shouldCompact } from "./lib/compaction";
 import type { SessionLog } from "./lib/logger";
 import { getPrompt } from "./lib/prompts";
 import {
@@ -51,6 +52,12 @@ export interface RunTurnOptions {
 	depth?: number;
 	/** Skills available to `use_skill`. Inherited by subagents, which cannot discover them alone. */
 	skills?: Skill[];
+	/**
+	 * Summarise the conversation automatically when it nears the context window.
+	 * Opt-in: a turn that compacts spends tokens and rewrites history, which a
+	 * caller that did not ask for it must not get.
+	 */
+	autoCompact?: boolean;
 }
 
 export async function runTurn(
@@ -129,8 +136,38 @@ export async function runTurn(
 		skills: options.skills,
 	};
 
+	// Auto-compaction: when the conversation approaches the window, summarise it
+	// before the next call instead of letting the provider truncate it silently.
+	// Off by default so existing callers and tests keep their exact behaviour.
+	const autoCompact = options.autoCompact ?? false;
+	const contextLength = session?.stats?.contextLength ?? 0;
+	const compactIfNeeded = async (messages: Message[]): Promise<Message[]> => {
+		if (!autoCompact || !shouldCompact(messages, contextLength)) return messages;
+
+		logger?.info("[Compact] Context is near the window limit; summarising older turns.");
+		const outcome = await compactHistory(messages, apiCaller);
+		if (outcome.history) {
+			// The summariser is a real API call: bill it like any other.
+			if (session) recordUsage(session, outcome.usage);
+			logger?.info(
+				`[Compact] Summarised ${outcome.dropped} message(s); kept ${outcome.kept}. ` +
+					`(${outcome.usage.prompt_tokens} in / ${outcome.usage.completion_tokens} out)`,
+			);
+			return outcome.history;
+		}
+		logger?.info(`[Compact] Skipped: ${outcome.reason ?? "unknown reason"}`);
+		return messages;
+	};
+
 	while (true) {
 		apiCallNumber++;
+		// Compact before the call, not after: the point is to keep the request
+		// that is about to be sent inside the window.
+		const compacted = await compactIfNeeded(currentMessages);
+		if (compacted !== currentMessages) {
+			currentMessages.length = 0;
+			currentMessages.push(...compacted);
+		}
 		// Spin only while the request is in flight: the moment a token arrives the
 		// glyph would collide with the model's own output.
 		let response: Awaited<ReturnType<ApiCaller>>;

@@ -129,7 +129,7 @@ async function main() {
 				promptDir: PROMPT_DIR,
 				skillsDir,
 			};
-			const result = runCommand(command, context);
+			const result = await runCommand(command, context);
 			console.log(result.output);
 			console.log();
 
@@ -169,6 +169,9 @@ async function main() {
 				promptDir: PROMPT_DIR,
 				askUser,
 				skills,
+				// Summarise before the window fills rather than letting the
+				// provider silently truncate the oldest turns.
+				autoCompact: true,
 			},
 		);
 

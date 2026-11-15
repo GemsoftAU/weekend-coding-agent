@@ -1,11 +1,15 @@
 // Slash commands for the REPL. Parsing is separated from execution so the
 // dispatcher stays testable without touching the terminal, the network, or disk.
+
+import { analyzeLogs, formatAnalysis } from "./analysis";
 import type { ModelStats } from "./api";
+import { callLLM } from "./api";
+import { compactHistory } from "./compaction";
 import { type LogEntry, listLogFiles, loadSessionHistory, readLogEntries } from "./logger";
 import { listPrompts } from "./prompts";
-import type { SessionState } from "./session";
+import { estimateConversationTokens, type SessionState } from "./session";
 import { DEFAULT_SKILLS_DIR, loadSkills, skillsPathPrefix } from "./skills";
-import type { Message } from "./types";
+import type { ApiCaller, Message } from "./types";
 
 export interface CommandContext {
 	/** Session state (cost + context) shown by /session. */
@@ -32,6 +36,11 @@ export interface CommandContext {
 	promptDir?: string;
 	/** Directory holding the skills, read by /skills. Defaults to the shipped one. */
 	skillsDir?: string;
+	/**
+	 * Model caller for the commands that summarise. Injected so /compact and
+	 * /analyze can be tested without a network. Defaults to the real client.
+	 */
+	apiCaller?: ApiCaller;
 }
 
 export interface CommandResult {
@@ -70,6 +79,7 @@ export const COMMAND_NAMES = [
 	"restore",
 	"fork",
 	"compact",
+	"analyze",
 	"agents",
 	"skills",
 	"exit",
@@ -85,6 +95,7 @@ const HELP = [
 	"  /restore <id>    Load a saved session's history (id prefix is enough)",
 	"  /fork <id>       Start a new session branched from a saved one",
 	"  /compact         Summarise the conversation so far (keeps the last turns)",
+	"  /analyze         Analyse the session logs: tool use, failures, context size",
 	"  /agents          List the prompts and the subagents this agent can run",
 	"  /skills          List the skills on disk and where their SKILL.md files are",
 	"  /exit            Quit",
@@ -292,38 +303,63 @@ function forkCommand(ctx: CommandContext, args: string[]): CommandResult {
 	};
 }
 
-function compactCommand(ctx: CommandContext): CommandResult {
-	// Chapter 11 replaces this with an LLM summariser. Until then, compaction
-	// drops old turns mechanically and keeps the system prompt + recent tail.
-	const system = ctx.history.filter((m) => m.role === "system");
-	const rest = ctx.history.filter((m) => m.role !== "system");
-	const keep = 6;
-	if (rest.length <= keep) {
-		return { output: `Nothing to compact: ${rest.length} non-system message(s).` };
+/**
+ * Summarise the conversation and replace the old turns with the summary.
+ *
+ * Compaction spends tokens to save tokens, so it reports the bill: the summary
+ * call is a real API call and hiding its cost would make the /session figure
+ * look inexplicably higher.
+ */
+async function compactCommand(ctx: CommandContext): Promise<CommandResult> {
+	const before = estimateConversationTokens(ctx.history);
+	const outcome = await compactHistory(ctx.history, ctx.apiCaller ?? callLLM);
+
+	if (!outcome.history) {
+		return { output: outcome.reason ?? "Nothing to compact." };
 	}
 
-	let tail = rest.slice(rest.length - keep);
-	// Never keep a tool result without the assistant call it answers: the API
-	// rejects orphaned tool messages, so trim from the front until the tail
-	// starts on something the model said.
-	while (tail.length > 0 && tail[0].role === "tool") tail = tail.slice(1);
-
-	const dropped = rest.length - tail.length;
-	if (dropped <= 0) {
-		return { output: `Nothing to compact: ${rest.length} non-system message(s).` };
-	}
-	const note: Message = {
-		role: "user",
-		content: `[compacted ${dropped} earlier message(s)]`,
-	};
+	const after = estimateConversationTokens(outcome.history);
+	const saved = before - after;
+	const cost = outcome.usage.prompt_tokens + outcome.usage.completion_tokens;
 	return {
-		output: `Compacted ${dropped} message(s); kept the last ${tail.length}.`,
-		history: [...system, note, ...tail],
+		output: [
+			`Compacted ${outcome.dropped} message(s) into a summary; kept ${outcome.kept} recent message(s) verbatim.`,
+			`Context: ~${before} → ~${after} tokens (~${saved} saved).`,
+			`Summariser cost: ${outcome.usage.prompt_tokens} in / ${outcome.usage.completion_tokens} out (${cost} tokens).`,
+			"",
+			"--- summary ---",
+			outcome.summary ?? "",
+		].join("\n"),
+		history: outcome.history,
 	};
 }
 
-/** Run one parsed command. Unknown commands never throw: they report usage. */
-export function runCommand(command: ParsedCommand, ctx: CommandContext): CommandResult {
+/**
+ * Mine the session logs for patterns. Reads the record rather than the running
+ * conversation, so it can report on sessions that already ended.
+ */
+async function analyzeCommand(ctx: CommandContext): Promise<CommandResult> {
+	const entries: LogEntry[] = [];
+	for (const file of listLogFiles(ctx.logDir)) {
+		for (const entry of readLogEntries(file)) entries.push(entry);
+	}
+
+	if (entries.length === 0) {
+		return { output: `No session logs in ${ctx.logDir} to analyse.` };
+	}
+
+	const analysis = analyzeLogs(entries);
+	return { output: formatAnalysis(analysis, `${entries.length} logged entries in ${ctx.logDir}`) };
+}
+
+/**
+ * Run one parsed command. Unknown commands never throw: they report usage.
+ * Async because /compact calls the model to summarise.
+ */
+export async function runCommand(
+	command: ParsedCommand,
+	ctx: CommandContext,
+): Promise<CommandResult> {
 	switch (command.name) {
 		case "help":
 			return helpCommand(ctx);
@@ -340,7 +376,9 @@ export function runCommand(command: ParsedCommand, ctx: CommandContext): Command
 		case "fork":
 			return forkCommand(ctx, command.args);
 		case "compact":
-			return compactCommand(ctx);
+			return await compactCommand(ctx);
+		case "analyze":
+			return await analyzeCommand(ctx);
 		case "agents":
 			return agentsCommand(ctx);
 		case "skills":
