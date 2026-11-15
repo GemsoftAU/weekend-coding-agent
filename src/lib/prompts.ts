@@ -30,21 +30,29 @@ export function parseList(raw: string): string[] {
 		.map((line) => line.slice(2).trim());
 }
 
-export function parsePrompt(raw: string): PromptTemplate {
-	const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-	if (!match) {
-		return {
-			frontmatter: { name: "default", description: "", tools: [], subagents: [] },
-			body: raw.trim(),
-		};
-	}
+export interface FrontmatterSplit {
+	/** Raw `key: value` fields, unparsed. Empty when the file has no frontmatter. */
+	fields: Record<string, string>;
+	/** Everything after the closing `---`, trimmed. */
+	body: string;
+	/** False when the file has no `---` block at all. */
+	hasFrontmatter: boolean;
+}
 
-	const head = match[1];
-	const body = match[2];
+/**
+ * Split a frontmatter block from its body. Shared by prompts and skills so both
+ * read the same subset of YAML: `key: value`, plus indented or `- ` continuation
+ * lines folded into the previous key. A full YAML parser is deliberately not
+ * pulled in for four scalar fields.
+ */
+export function splitFrontmatter(raw: string): FrontmatterSplit {
+	const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+	if (!match) return { fields: {}, body: raw.trim(), hasFrontmatter: false };
+
 	const fields: Record<string, string> = {};
 	let currentKey = "";
 
-	for (const line of head.split("\n")) {
+	for (const line of match[1].split("\n")) {
 		const kv = line.match(/^([A-Za-z_]+):\s?(.*)$/);
 		if (kv) {
 			currentKey = kv[1];
@@ -52,6 +60,18 @@ export function parsePrompt(raw: string): PromptTemplate {
 		} else if (currentKey) {
 			fields[currentKey] += `\n${line}`;
 		}
+	}
+
+	return { fields, body: match[2].trim(), hasFrontmatter: true };
+}
+
+export function parsePrompt(raw: string): PromptTemplate {
+	const { fields, body } = splitFrontmatter(raw);
+	if (Object.keys(fields).length === 0) {
+		return {
+			frontmatter: { name: "default", description: "", tools: [], subagents: [] },
+			body,
+		};
 	}
 
 	return {

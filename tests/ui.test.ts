@@ -62,6 +62,21 @@ describe("formatSplash", () => {
 		expect(splash()).toContain("Subagents: none");
 	});
 
+	test("lists the skills discovered on disk", () => {
+		expect(splash({ skills: ["big_text", "generate_image"] })).toContain(
+			"Skills: big_text, generate_image",
+		);
+	});
+
+	test("says there are no skills rather than printing an empty line", () => {
+		expect(splash()).toContain("Skills: none");
+	});
+
+	test("lists configured API keys by name, and says so when none are set", () => {
+		expect(splash({ apiKeys: ["GEMINI_API_KEY"] })).toContain("API keys: GEMINI_API_KEY");
+		expect(splash()).toContain("API keys: none configured");
+	});
+
 	test("degrades to 'stats not found' when pricing is unavailable", () => {
 		const out = splash({ stats: null });
 		expect(out).toContain("Model: vendor/model-id (stats not found)");

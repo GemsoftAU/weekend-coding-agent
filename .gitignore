@@ -52,6 +52,12 @@ outputs/
 predictions/
 experiments/
 
+# Generated media from the generate_image / generate_video skills.
+# The skills themselves live in skills/ and are tracked; only their output is junk.
+output/
+images/
+videos/
+
 # Hugging Face cache
 .cache/huggingface/
 huggingface/

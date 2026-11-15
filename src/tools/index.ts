@@ -1,3 +1,4 @@
+import { findSkill, formatSkillBody } from "../lib/skills";
 import type { ToolContext, ToolSchema } from "../lib/types";
 import {
 	type Edit,
@@ -162,6 +163,33 @@ export const TOOLS: ToolSchema[] = [
 				},
 				required: ["path"],
 			},
+		},
+	},
+	{
+		type: "function",
+		function: {
+			name: "use_skill",
+			description:
+				"Load the full instructions for a skill listed in your system prompt, by name. Returns the skill's Markdown body. Read the skill before doing work it covers: skills document command forms and flags you would otherwise have to guess.",
+			parameters: {
+				type: "object",
+				properties: {
+					name: {
+						type: "string",
+						description: "The skill's name, as listed in the Skills section of the system prompt",
+					},
+				},
+				required: ["name"],
+			},
+		},
+	},
+	{
+		type: "function",
+		function: {
+			name: "list_skills",
+			description:
+				"List every skill on disk with its name, description and file path. Use it when you are unsure which skill covers a task.",
+			parameters: { type: "object", properties: {}, required: [] },
 		},
 	},
 	{
@@ -354,6 +382,26 @@ export async function executeTool(
 					throw new ToolArgsError("No interactive input is available in this context");
 				}
 				return await context.askUser(stringArg(args, "question"));
+			}
+			case "use_skill": {
+				const requested = stringArg(args, "name");
+				const skills = context.skills ?? [];
+				if (skills.length === 0) {
+					throw new ToolArgsError("No skills are available in this run");
+				}
+				const skill = findSkill(skills, requested);
+				if (!skill) {
+					const known = skills.map((s) => s.frontmatter.name).join(", ");
+					throw new ToolArgsError(`Unknown skill: ${requested} (known: ${known})`);
+				}
+				return formatSkillBody(skill);
+			}
+			case "list_skills": {
+				const skills = context.skills ?? [];
+				if (skills.length === 0) return "No skills are available in this run.";
+				return skills
+					.map((s) => `- ${s.frontmatter.name} (${s.path}): ${s.frontmatter.description}`)
+					.join("\n");
 			}
 			default:
 				return `Unknown tool: ${name}`;

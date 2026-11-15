@@ -19,6 +19,10 @@ export interface SplashInput {
 	tools: string[];
 	/** Subagents this prompt may delegate to, by name. */
 	subagents?: string[];
+	/** Skills discovered on disk, by name. */
+	skills?: string[];
+	/** Names of the API keys that are configured. Names only, never values. */
+	apiKeys?: string[];
 	logFile?: string | null;
 	/** Most recent saved sessions, newest first. */
 	recent?: RecentSession[];
@@ -76,6 +80,8 @@ export function formatSplash(input: SplashInput): string {
 		`Prompt: ${input.promptName} - ${input.promptDescription}`,
 		`Tools: ${input.tools.length > 0 ? input.tools.join(", ") : "none"}`,
 		`Subagents: ${input.subagents && input.subagents.length > 0 ? input.subagents.join(", ") : "none"}`,
+		`Skills: ${input.skills && input.skills.length > 0 ? input.skills.join(", ") : "none"}`,
+		`API keys: ${input.apiKeys && input.apiKeys.length > 0 ? input.apiKeys.join(", ") : "none configured"}`,
 		`Logging to: ${input.logFile ?? "(logging disabled)"}`,
 		...recentLines(input.recent ?? [], input.sessionId),
 		"Type 'exit' to quit, /help for commands.",

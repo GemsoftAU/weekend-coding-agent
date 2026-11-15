@@ -4,6 +4,7 @@ import type { ModelStats } from "./api";
 import { type LogEntry, listLogFiles, loadSessionHistory, readLogEntries } from "./logger";
 import { listPrompts } from "./prompts";
 import type { SessionState } from "./session";
+import { DEFAULT_SKILLS_DIR, loadSkills, skillsPathPrefix } from "./skills";
 import type { Message } from "./types";
 
 export interface CommandContext {
@@ -25,8 +26,12 @@ export interface CommandContext {
 	tools?: string[];
 	/** Names of the subagents this prompt may delegate to, shown by /help and /agents. */
 	subagents?: string[];
+	/** Names of the skills discovered on disk, shown by /help and /skills. */
+	skills?: string[];
 	/** Directory holding the prompt files, read by /agents. */
 	promptDir?: string;
+	/** Directory holding the skills, read by /skills. Defaults to the shipped one. */
+	skillsDir?: string;
 }
 
 export interface CommandResult {
@@ -66,6 +71,7 @@ export const COMMAND_NAMES = [
 	"fork",
 	"compact",
 	"agents",
+	"skills",
 	"exit",
 ] as const;
 
@@ -80,6 +86,7 @@ const HELP = [
 	"  /fork <id>       Start a new session branched from a saved one",
 	"  /compact         Summarise the conversation so far (keeps the last turns)",
 	"  /agents          List the prompts and the subagents this agent can run",
+	"  /skills          List the skills on disk and where their SKILL.md files are",
 	"  /exit            Quit",
 ].join("\n");
 
@@ -123,6 +130,7 @@ function helpCommand(ctx: CommandContext): CommandResult {
 	if (ctx.agentName) lines.push("", `Agent: ${ctx.agentName}`);
 	if (ctx.tools?.length) lines.push(`Tools: ${ctx.tools.join(", ")}`);
 	if (ctx.subagents?.length) lines.push(`Subagents: ${ctx.subagents.join(", ")}`);
+	if (ctx.skills?.length) lines.push(`Skills: ${ctx.skills.join(", ")}`);
 	return { output: lines.join("\n") };
 }
 
@@ -152,6 +160,37 @@ function agentsCommand(ctx: CommandContext): CommandResult {
 			...lines,
 			"",
 			`Current agent: ${ctx.agentName ?? "unknown"}`,
+		].join("\n"),
+	};
+}
+
+/**
+ * List every skill on disk. Like /agents this reads the files rather than the
+ * names cached at startup, so a skill added mid-session shows up here before it
+ * is available to the running agent (which needs a restart).
+ */
+function skillsCommand(ctx: CommandContext): CommandResult {
+	let skills: ReturnType<typeof loadSkills>;
+	try {
+		skills = loadSkills(ctx.skillsDir, {
+			pathPrefix: skillsPathPrefix(ctx.skillsDir, process.cwd()),
+		});
+	} catch (e: unknown) {
+		return { output: `Could not read skills: ${(e as Error).message}` };
+	}
+	if (skills.length === 0) {
+		return {
+			output: `No skills found in ${ctx.skillsDir ?? DEFAULT_SKILLS_DIR}. Add a <name>/SKILL.md to install one.`,
+		};
+	}
+
+	const lines = skills.map(
+		(s) => `  ${s.frontmatter.name}: ${s.frontmatter.description}\n      ${s.path}`,
+	);
+	return {
+		output: [
+			"Skills (load one with `use_skill <name>`; the file can also be read directly):",
+			...lines,
 		].join("\n"),
 	};
 }
@@ -304,6 +343,8 @@ export function runCommand(command: ParsedCommand, ctx: CommandContext): Command
 			return compactCommand(ctx);
 		case "agents":
 			return agentsCommand(ctx);
+		case "skills":
+			return skillsCommand(ctx);
 		case "exit":
 		case "quit":
 			return { output: "Bye.", exit: true };

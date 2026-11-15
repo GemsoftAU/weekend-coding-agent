@@ -43,6 +43,8 @@ describe("tool registry", () => {
 			"search_files",
 			"write_file",
 			"replace_in_file",
+			"use_skill",
+			"list_skills",
 			"run_check",
 			"git_diff",
 			"download_url",

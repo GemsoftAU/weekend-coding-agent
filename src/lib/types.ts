@@ -1,3 +1,5 @@
+import type { Skill } from "./skills";
+
 export interface ToolCall {
 	id: string;
 	type?: string;
@@ -52,6 +54,8 @@ export type AskUser = (question: string) => Promise<string>;
 export interface ToolContext {
 	agentRunner?: AgentRunner;
 	askUser?: AskUser;
+	/** Skills discovered at startup, for `use_skill` and `list_skills`. */
+	skills?: Skill[];
 }
 
 export type ToolExecutor = (

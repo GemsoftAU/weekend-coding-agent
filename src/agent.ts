@@ -15,6 +15,7 @@ import {
 	type SessionState,
 	sessionStatusLine,
 } from "./lib/session";
+import { buildSystemPrompt, type Skill } from "./lib/skills";
 import type { Spinner } from "./lib/spinner";
 import type {
 	AgentRunner,
@@ -48,6 +49,8 @@ export interface RunTurnOptions {
 	askUser?: AskUser;
 	/** Nesting level; 0 is the top-level agent. */
 	depth?: number;
+	/** Skills available to `use_skill`. Inherited by subagents, which cannot discover them alone. */
+	skills?: Skill[];
 }
 
 export async function runTurn(
@@ -80,9 +83,21 @@ export async function runTurn(
 		logger?.info(formatSubagentStart(subAgentName, task));
 
 		// A subagent starts from its own prompt and the task, never from the
-		// parent's history: that isolation is the point of delegating.
+		// parent's history: that isolation is the point of delegating. The skills
+		// listing is the one thing that carries over, and only to a subagent that
+		// has a way to act on it: offering skills to an agent whose only tool is
+		// `ask_user` is tokens spent on instructions it cannot follow.
+		const canLoadSkills = subTools.some((t) =>
+			["use_skill", "read_file"].includes(t.function.name),
+		);
 		const subHistory: Message[] = [
-			{ role: "system", content: prompt.body },
+			{
+				role: "system",
+				content: buildSystemPrompt({
+					body: prompt.body,
+					skills: canLoadSkills ? options.skills : [],
+				}),
+			},
 			{ role: "user", content: task },
 		];
 		const subLog = sessionLog?.child(subAgentName) ?? null;
@@ -111,6 +126,7 @@ export async function runTurn(
 	const toolContext: ToolContext = {
 		agentRunner,
 		askUser: options.askUser,
+		skills: options.skills,
 	};
 
 	while (true) {

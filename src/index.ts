@@ -2,10 +2,12 @@ import { join } from "node:path";
 import { runTurn } from "./agent";
 import { fetchModelStats, MODEL } from "./lib/api";
 import { type CommandContext, parseCommand, runCommand } from "./lib/commands";
+import { configuredKeys, ENV_FILE, loadEnvFile } from "./lib/env";
 import { createAskUser, createInput, isExitLine, setSharedInput } from "./lib/input";
 import { createSessionLogger, recentSessions, type SessionLog } from "./lib/logger";
-import { loadPrompt } from "./lib/prompts";
+import { listPrompts, loadPrompt } from "./lib/prompts";
 import { createSession } from "./lib/session";
+import { buildSystemPrompt, loadSkills, resolveSkillsDir, skillsPathPrefix } from "./lib/skills";
 import { createSpinner } from "./lib/spinner";
 import type { Message } from "./lib/types";
 import { formatAgentPrompt, formatSplash, formatTurnStatus } from "./lib/ui";
@@ -15,6 +17,15 @@ const LOG_DIR = join(process.cwd(), ".session_logs");
 const PROMPT_DIR = join(import.meta.dir, "prompts");
 
 async function main() {
+	// Load the project env file before anything reads a key. `api.ts` resolves
+	// MODEL at import time and the skills shell out to child processes, so this
+	// has to happen at the top of main rather than lazily at the call site.
+	// Only the key *names* are ever printed, never a value.
+	const envResult = loadEnvFile();
+	if (envResult.loaded.length > 0) {
+		console.log(`[env] loaded ${envResult.loaded.join(", ")} from ${ENV_FILE}`);
+	}
+
 	const template = loadPrompt("default", PROMPT_DIR);
 	const agentName = template.frontmatter.name;
 
@@ -35,8 +46,21 @@ async function main() {
 		console.error(`[log] session logging disabled: ${(e as Error).message}`);
 	}
 
+	// Skills are discovered, never listed: a new skills/<name>/SKILL.md appears on
+	// the next start. Only their name, description and path enter the prompt; the
+	// body costs nothing until the model asks for it with use_skill.
+	const skillsDir = resolveSkillsDir();
+	const skills = loadSkills(skillsDir, { pathPrefix: skillsPathPrefix(skillsDir) });
+
 	// The system prompt is part of the record: a log you cannot replay is not a log.
-	const history: Message[] = [{ role: "system", content: template.body }];
+	// It is composed from disk (agent body + agent roster + skills) rather than
+	// stored whole in default.md, so adding a skill or an agent needs no code change.
+	const history: Message[] = [
+		{
+			role: "system",
+			content: buildSystemPrompt({ body: template.body, agents: listPrompts(PROMPT_DIR), skills }),
+		},
+	];
 	sessionLog?.log(history[0]);
 
 	// The recent-session list is decoration, not state: a broken log dir must
@@ -57,6 +81,8 @@ async function main() {
 			promptDescription: template.frontmatter.description,
 			tools: toolNames,
 			subagents: template.frontmatter.subagents,
+			skills: skills.map((s) => s.frontmatter.name),
+			apiKeys: configuredKeys(),
 			logFile: sessionLog?.logFile ?? null,
 			recent,
 			sessionId: sessionLog?.sessionId ?? null,
@@ -99,7 +125,9 @@ async function main() {
 				stats,
 				tools: toolNames,
 				subagents: template.frontmatter.subagents,
+				skills: skills.map((s) => s.frontmatter.name),
 				promptDir: PROMPT_DIR,
+				skillsDir,
 			};
 			const result = runCommand(command, context);
 			console.log(result.output);
@@ -140,6 +168,7 @@ async function main() {
 				spinner,
 				promptDir: PROMPT_DIR,
 				askUser,
+				skills,
 			},
 		);
 
