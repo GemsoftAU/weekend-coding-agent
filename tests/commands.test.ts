@@ -91,6 +91,15 @@ describe("/help", () => {
 		expect(output).toContain("Agent: default");
 		expect(output).toContain("read_file, run_check");
 	});
+
+	test("shows the subagents it can delegate to", () => {
+		const { output } = run("/help", makeContext({ subagents: ["code-map", "poet"] }));
+		expect(output).toContain("Subagents: code-map, poet");
+	});
+
+	test("omits the subagent line when there are none", () => {
+		expect(run("/help").output).not.toContain("Subagents:");
+	});
 });
 
 describe("/models", () => {
@@ -341,6 +350,45 @@ describe("/compact", () => {
 		for (const [i, message] of kept.entries()) {
 			if (message.role === "tool") expect(kept[i - 1]?.role).toBe("assistant");
 		}
+	});
+});
+
+describe("/agents", () => {
+	test("lists every prompt on disk with its description and tools", () => {
+		const { output } = run(
+			"/agents",
+			makeContext({ promptDir: join(import.meta.dir, "..", "src", "prompts") }),
+		);
+		expect(output).toContain("code-map:");
+		expect(output).toContain("tech-researcher:");
+		expect(output).toContain("feature-planner:");
+		expect(output).toContain("poet:");
+		expect(output).toContain("tools:");
+	});
+
+	test("marks the subagents this agent may delegate to", () => {
+		const { output } = run(
+			"/agents",
+			makeContext({
+				promptDir: join(import.meta.dir, "..", "src", "prompts"),
+				subagents: ["poet"],
+			}),
+		);
+		expect(output).toContain("* poet:");
+		expect(output).toContain("  code-map:");
+	});
+
+	test("names the current agent", () => {
+		const { output } = run(
+			"/agents",
+			makeContext({ promptDir: join(import.meta.dir, "..", "src", "prompts") }),
+		);
+		expect(output).toContain("Current agent: default");
+	});
+
+	test("a missing prompt directory is reported, not thrown", () => {
+		const { output } = run("/agents", makeContext({ promptDir: join(dir, "nope") }));
+		expect(output).toContain("No prompts found");
 	});
 });
 

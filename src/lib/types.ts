@@ -36,7 +36,29 @@ export interface CompletionResponse {
 
 export type ApiCaller = (messages: Message[], tools: ToolSchema[]) => Promise<CompletionResponse>;
 
-export type ToolExecutor = (name: string, args: Record<string, unknown>) => Promise<string>;
+/**
+ * Runs a named subagent to completion and returns its final answer. Injected
+ * into the tool layer so `run_agent` can be tested without a real model.
+ */
+export type AgentRunner = (agentName: string, task: string) => Promise<string>;
+
+/** Asks the human a question and resolves with their answer. */
+export type AskUser = (question: string) => Promise<string>;
+
+/**
+ * Per-call dependencies for tools that cannot work from arguments alone.
+ * Optional so every existing tool stays a pure `(name, args)` function.
+ */
+export interface ToolContext {
+	agentRunner?: AgentRunner;
+	askUser?: AskUser;
+}
+
+export type ToolExecutor = (
+	name: string,
+	args: Record<string, unknown>,
+	context?: ToolContext,
+) => Promise<string>;
 
 export interface Logger {
 	info: (msg: string) => void;

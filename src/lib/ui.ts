@@ -17,6 +17,8 @@ export interface SplashInput {
 	promptName: string;
 	promptDescription: string;
 	tools: string[];
+	/** Subagents this prompt may delegate to, by name. */
+	subagents?: string[];
 	logFile?: string | null;
 	/** Most recent saved sessions, newest first. */
 	recent?: RecentSession[];
@@ -73,6 +75,7 @@ export function formatSplash(input: SplashInput): string {
 		pricingLine(input.stats),
 		`Prompt: ${input.promptName} - ${input.promptDescription}`,
 		`Tools: ${input.tools.length > 0 ? input.tools.join(", ") : "none"}`,
+		`Subagents: ${input.subagents && input.subagents.length > 0 ? input.subagents.join(", ") : "none"}`,
 		`Logging to: ${input.logFile ?? "(logging disabled)"}`,
 		...recentLines(input.recent ?? [], input.sessionId),
 		"Type 'exit' to quit, /help for commands.",
@@ -163,6 +166,18 @@ export function formatReasoning(details: unknown): string | null {
 /** Input label naming the agent that will answer, e.g. `[default]> `. */
 export function formatAgentPrompt(agentName: string): string {
 	return `[${agentName}]> `;
+}
+
+/**
+ * Subagent boundaries are printed so a nested run is legible in the terminal:
+ * without them the subagent's tool calls look like the parent's.
+ */
+export function formatSubagentStart(agentName: string, task: string): string {
+	return `--- [Subagent Start] ${agentName} ---\nTask: ${task}`;
+}
+
+export function formatSubagentEnd(agentName: string): string {
+	return `--- [Subagent End] ${agentName} ---`;
 }
 
 /**

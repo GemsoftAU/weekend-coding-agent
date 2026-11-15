@@ -2,8 +2,13 @@
 // message history to the LLM, executes any requested tool calls (in parallel),
 // and feeds the results back until the model produces a final answer,
 // then returns the updated history and accumulated token usage.
+//
+// A subagent is the same loop, run again with a different prompt and tool set.
+// `run_agent` is therefore not a special case in the loop: it is a tool whose
+// implementation happens to be a nested runTurn().
 import { callLLM } from "./lib/api";
 import type { SessionLog } from "./lib/logger";
+import { getPrompt } from "./lib/prompts";
 import {
 	estimateConversationTokens,
 	recordUsage,
@@ -11,13 +16,38 @@ import {
 	sessionStatusLine,
 } from "./lib/session";
 import type { Spinner } from "./lib/spinner";
-import type { ApiCaller, Logger, Message, ToolExecutor, ToolSchema, TurnResult } from "./lib/types";
-import { formatReasoning, formatToolCall, formatToolResult } from "./lib/ui";
-import { executeTool, TOOLS } from "./tools";
+import type {
+	AgentRunner,
+	ApiCaller,
+	AskUser,
+	Logger,
+	Message,
+	ToolContext,
+	ToolExecutor,
+	ToolSchema,
+	TurnResult,
+} from "./lib/types";
+import {
+	formatReasoning,
+	formatSubagentEnd,
+	formatSubagentStart,
+	formatToolCall,
+	formatToolResult,
+} from "./lib/ui";
+import { executeTool, TOOLS, toolsForPrompt } from "./tools";
+
+/** How deep subagents may nest. A subagent that spawns subagents forever is a bug. */
+export const MAX_SUBAGENT_DEPTH = 2;
 
 export interface RunTurnOptions {
 	/** Animated indicator shown while waiting on the API. Optional, TTY-only. */
 	spinner?: Spinner | null;
+	/** Directory holding the prompt files subagents are loaded from. */
+	promptDir?: string;
+	/** How the human is reached when a subagent calls `ask_user`. */
+	askUser?: AskUser;
+	/** Nesting level; 0 is the top-level agent. */
+	depth?: number;
 }
 
 export async function runTurn(
@@ -35,6 +65,53 @@ export async function runTurn(
 	const usage = { prompt_tokens: 0, completion_tokens: 0 };
 	let apiCallNumber = 0;
 	const spinner = options.spinner ?? null;
+	const depth = options.depth ?? 0;
+
+	// The subagent runner closes over this turn's dependencies, so a nested turn
+	// uses the same API client, executor, session and log as its parent.
+	const agentRunner: AgentRunner = async (subAgentName: string, task: string) => {
+		if (depth >= MAX_SUBAGENT_DEPTH) {
+			return `Tool error: subagents cannot nest more than ${MAX_SUBAGENT_DEPTH} levels deep`;
+		}
+
+		const prompt = getPrompt(subAgentName, options.promptDir);
+		const subTools = toolsForPrompt(prompt.frontmatter.tools, prompt.frontmatter.subagents);
+
+		logger?.info(formatSubagentStart(subAgentName, task));
+
+		// A subagent starts from its own prompt and the task, never from the
+		// parent's history: that isolation is the point of delegating.
+		const subHistory: Message[] = [
+			{ role: "system", content: prompt.body },
+			{ role: "user", content: task },
+		];
+		const subLog = sessionLog?.child(subAgentName) ?? null;
+		subLog?.log(subHistory[0]);
+		subLog?.log(subHistory[1]);
+
+		const result = await runTurn(
+			subHistory,
+			apiCaller,
+			toolExecutor,
+			subTools,
+			logger,
+			subAgentName,
+			session,
+			subLog,
+			{ ...options, depth: depth + 1 },
+		);
+
+		logger?.info(formatSubagentEnd(subAgentName));
+
+		const last = result.messages.at(-1);
+		if (last?.role === "assistant" && last.content) return last.content;
+		return "Subagent completed without specific output.";
+	};
+
+	const toolContext: ToolContext = {
+		agentRunner,
+		askUser: options.askUser,
+	};
 
 	while (true) {
 		apiCallNumber++;
@@ -83,7 +160,7 @@ export async function runTurn(
 					let content: string;
 					try {
 						const args = JSON.parse(toolCall.function.arguments || "{}");
-						content = await toolExecutor(toolCall.function.name, args);
+						content = await toolExecutor(toolCall.function.name, args, toolContext);
 					} catch (e: unknown) {
 						content = `Tool error: ${(e as Error).message}`;
 					}

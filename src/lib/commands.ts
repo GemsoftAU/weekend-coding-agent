@@ -2,6 +2,7 @@
 // dispatcher stays testable without touching the terminal, the network, or disk.
 import type { ModelStats } from "./api";
 import { type LogEntry, listLogFiles, loadSessionHistory, readLogEntries } from "./logger";
+import { listPrompts } from "./prompts";
 import type { SessionState } from "./session";
 import type { Message } from "./types";
 
@@ -22,6 +23,10 @@ export interface CommandContext {
 	stats?: ModelStats | null;
 	/** Names of the tools the agent can call, shown by /help. */
 	tools?: string[];
+	/** Names of the subagents this prompt may delegate to, shown by /help and /agents. */
+	subagents?: string[];
+	/** Directory holding the prompt files, read by /agents. */
+	promptDir?: string;
 }
 
 export interface CommandResult {
@@ -60,6 +65,7 @@ export const COMMAND_NAMES = [
 	"restore",
 	"fork",
 	"compact",
+	"agents",
 	"exit",
 ] as const;
 
@@ -73,6 +79,7 @@ const HELP = [
 	"  /restore <id>    Load a saved session's history (id prefix is enough)",
 	"  /fork <id>       Start a new session branched from a saved one",
 	"  /compact         Summarise the conversation so far (keeps the last turns)",
+	"  /agents          List the prompts and the subagents this agent can run",
 	"  /exit            Quit",
 ].join("\n");
 
@@ -115,7 +122,38 @@ function helpCommand(ctx: CommandContext): CommandResult {
 	const lines = [HELP];
 	if (ctx.agentName) lines.push("", `Agent: ${ctx.agentName}`);
 	if (ctx.tools?.length) lines.push(`Tools: ${ctx.tools.join(", ")}`);
+	if (ctx.subagents?.length) lines.push(`Subagents: ${ctx.subagents.join(", ")}`);
 	return { output: lines.join("\n") };
+}
+
+/**
+ * List every prompt on disk with its description, marking the ones this agent
+ * may delegate to. The prompt files are the source of truth, so this reads them
+ * rather than a hardcoded table that would drift.
+ */
+function agentsCommand(ctx: CommandContext): CommandResult {
+	let prompts: ReturnType<typeof listPrompts>;
+	try {
+		prompts = listPrompts(ctx.promptDir);
+	} catch (e: unknown) {
+		return { output: `Could not read prompts: ${(e as Error).message}` };
+	}
+	if (prompts.length === 0) return { output: "No prompts found." };
+
+	const available = new Set(ctx.subagents ?? []);
+	const lines = prompts.map((p) => {
+		const mark = available.has(p.frontmatter.name) ? "*" : " ";
+		const tools = p.frontmatter.tools.join(", ") || "none";
+		return `  ${mark} ${p.frontmatter.name}: ${p.frontmatter.description}\n      tools: ${tools}`;
+	});
+	return {
+		output: [
+			"Prompts (* = this agent can delegate to it):",
+			...lines,
+			"",
+			`Current agent: ${ctx.agentName ?? "unknown"}`,
+		].join("\n"),
+	};
 }
 
 function modelsCommand(ctx: CommandContext): CommandResult {
@@ -264,6 +302,8 @@ export function runCommand(command: ParsedCommand, ctx: CommandContext): Command
 			return forkCommand(ctx, command.args);
 		case "compact":
 			return compactCommand(ctx);
+		case "agents":
+			return agentsCommand(ctx);
 		case "exit":
 		case "quit":
 			return { output: "Bye.", exit: true };

@@ -54,6 +54,14 @@ describe("formatSplash", () => {
 		expect(out).toContain("Logging to: /logs/2025-04-15-14-23.jsonl");
 	});
 
+	test("lists the subagents it can delegate to", () => {
+		expect(splash({ subagents: ["code-map", "poet"] })).toContain("Subagents: code-map, poet");
+	});
+
+	test("says there are no subagents rather than printing an empty line", () => {
+		expect(splash()).toContain("Subagents: none");
+	});
+
 	test("degrades to 'stats not found' when pricing is unavailable", () => {
 		const out = splash({ stats: null });
 		expect(out).toContain("Model: vendor/model-id (stats not found)");

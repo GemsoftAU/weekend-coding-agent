@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { createInput, isExitLine } from "../src/lib/input";
+import {
+	createAskUser,
+	createInput,
+	getSharedInput,
+	isExitLine,
+	setSharedInput,
+} from "../src/lib/input";
 
 /** Collect the lines readline emits for the given stdin text. */
 async function readAll(text: string, terminal = false): Promise<string[]> {
@@ -62,5 +68,71 @@ describe("isExitLine", () => {
 		expect(isExitLine("exit now")).toBe(false);
 		expect(isExitLine("/exit")).toBe(false);
 		expect(isExitLine("")).toBe(false);
+	});
+});
+
+describe("createAskUser", () => {
+	test("writes the question and resolves with the typed answer", async () => {
+		const input = new PassThrough();
+		const output = new PassThrough();
+		const rl = createInput({ input, output, terminal: false });
+		const ask = createAskUser(rl, output);
+
+		const written: string[] = [];
+		output.on("data", (chunk) => written.push(chunk.toString()));
+
+		const answer = ask("What is your name?");
+		input.write("Alice\n");
+
+		expect(await answer).toBe("Alice");
+		expect(written.join("")).toContain("What is your name?");
+		rl.close();
+	});
+
+	test("the answer is trimmed, so a stray space does not reach the model", async () => {
+		const input = new PassThrough();
+		const output = new PassThrough();
+		const rl = createInput({ input, output, terminal: false });
+		const ask = createAskUser(rl, output);
+
+		const answer = ask("Colour?");
+		input.write("  blue  \n");
+
+		expect(await answer).toBe("blue");
+		rl.close();
+	});
+
+	test("the answer is not also emitted as a REPL line", async () => {
+		// If readline emitted the answer as a line, the REPL loop would treat it
+		// as a new user message and the subagent's question would be answered twice.
+		const input = new PassThrough();
+		const output = new PassThrough();
+		const rl = createInput({ input, output, terminal: false });
+		const ask = createAskUser(rl, output);
+
+		const lines: string[] = [];
+		const done = (async () => {
+			for await (const line of rl) lines.push(line as string);
+		})();
+
+		input.write("go\n");
+		const answer = ask("Name?");
+		input.write("Alice\n");
+		expect(await answer).toBe("Alice");
+		input.end("bye\n");
+		await done;
+
+		expect(lines).toEqual(["go", "bye"]);
+	});
+});
+
+describe("shared input", () => {
+	test("the process-wide interface can be set and read back", () => {
+		const rl = createInput({ input: new PassThrough(), output: new PassThrough() });
+		setSharedInput(rl);
+		expect(getSharedInput()).toBe(rl);
+		setSharedInput(null);
+		expect(getSharedInput()).toBeNull();
+		rl.close();
 	});
 });

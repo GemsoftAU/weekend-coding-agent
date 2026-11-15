@@ -1,4 +1,4 @@
-import type { ToolSchema } from "../lib/types";
+import type { ToolContext, ToolSchema } from "../lib/types";
 import {
 	type Edit,
 	listFiles,
@@ -215,6 +215,21 @@ export const TOOLS: ToolSchema[] = [
 	{
 		type: "function",
 		function: {
+			name: "ask_user",
+			description:
+				"Ask the human a question and wait for their typed answer. Use it when you genuinely need information only they have; do not guess instead.",
+			parameters: {
+				type: "object",
+				properties: {
+					question: { type: "string", description: "The question to ask" },
+				},
+				required: ["question"],
+			},
+		},
+	},
+	{
+		type: "function",
+		function: {
 			name: "bash",
 			description:
 				"Last resort. Run a shell command when no structured tool fits (installing packages, starting a server, git beyond diffing). Never use this to read or write files that read_file or replace_in_file can handle.",
@@ -247,7 +262,54 @@ export function selectTools(names: string[]): ToolSchema[] {
 	return names.map((name) => byName.get(name) as ToolSchema);
 }
 
-export async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+/**
+ * The `run_agent` tool, built per prompt so its `agentName` enum lists exactly
+ * the subagents that prompt declares. A model cannot name an agent that was
+ * never offered to it, and the schema is the only place it learns the names.
+ */
+export function subagentTool(names: string[]): ToolSchema {
+	return {
+		type: "function",
+		function: {
+			name: "run_agent",
+			description:
+				"Delegate a self-contained task to a specialized subagent and get its final answer back. The subagent has its own prompt and tools and does not see this conversation, so the task must be complete on its own.",
+			parameters: {
+				type: "object",
+				properties: {
+					agentName: {
+						type: "string",
+						enum: names,
+						description: "The name of the subagent to run",
+					},
+					task: {
+						type: "string",
+						description: "The task description for the subagent",
+					},
+				},
+				required: ["agentName", "task"],
+			},
+		},
+	};
+}
+
+/**
+ * The full tool list for one prompt: its declared tools, plus `run_agent` when
+ * it declares subagents. The declared list and the offered list stay the same
+ * list; `run_agent` is the one tool that is implied by `subagents:` rather than
+ * named in `tools:`, because its argument enum is built from that list.
+ */
+export function toolsForPrompt(toolNames: string[], subagentNames: string[] = []): ToolSchema[] {
+	const tools = selectTools(toolNames);
+	if (subagentNames.length > 0) tools.push(subagentTool(subagentNames));
+	return tools;
+}
+
+export async function executeTool(
+	name: string,
+	args: Record<string, unknown>,
+	context: ToolContext = {},
+): Promise<string> {
 	try {
 		switch (name) {
 			case "bash":
@@ -281,6 +343,18 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
 				return await tavilySearch(stringArg(args, "query"));
 			case "git_diff":
 				return await gitDiff();
+			case "run_agent": {
+				if (!context.agentRunner) {
+					throw new ToolArgsError("No subagent runner is available in this context");
+				}
+				return await context.agentRunner(stringArg(args, "agentName"), stringArg(args, "task"));
+			}
+			case "ask_user": {
+				if (!context.askUser) {
+					throw new ToolArgsError("No interactive input is available in this context");
+				}
+				return await context.askUser(stringArg(args, "question"));
+			}
 			default:
 				return `Unknown tool: ${name}`;
 		}

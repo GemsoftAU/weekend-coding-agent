@@ -47,6 +47,7 @@ describe("tool registry", () => {
 			"git_diff",
 			"download_url",
 			"tavily_search",
+			"ask_user",
 			"bash",
 		]);
 	});

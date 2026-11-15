@@ -2,23 +2,25 @@ import { join } from "node:path";
 import { runTurn } from "./agent";
 import { fetchModelStats, MODEL } from "./lib/api";
 import { type CommandContext, parseCommand, runCommand } from "./lib/commands";
-import { createInput, isExitLine } from "./lib/input";
+import { createAskUser, createInput, isExitLine, setSharedInput } from "./lib/input";
 import { createSessionLogger, recentSessions, type SessionLog } from "./lib/logger";
 import { loadPrompt } from "./lib/prompts";
 import { createSession } from "./lib/session";
 import { createSpinner } from "./lib/spinner";
 import type { Message } from "./lib/types";
 import { formatAgentPrompt, formatSplash, formatTurnStatus } from "./lib/ui";
-import { selectTools } from "./tools";
+import { toolsForPrompt } from "./tools";
 
 const LOG_DIR = join(process.cwd(), ".session_logs");
+const PROMPT_DIR = join(import.meta.dir, "prompts");
 
 async function main() {
-	const template = loadPrompt("default");
+	const template = loadPrompt("default", PROMPT_DIR);
 	const agentName = template.frontmatter.name;
 
-	// Declared capability and actual capability must be the same list.
-	const tools = selectTools(template.frontmatter.tools);
+	// Declared capability and actual capability must be the same list. A prompt
+	// that declares subagents also gets `run_agent`, with those names in its enum.
+	const tools = toolsForPrompt(template.frontmatter.tools, template.frontmatter.subagents);
 	const toolNames = tools.map((t) => t.function.name);
 
 	// Model stats fetch is best-effort: the agent must still start offline.
@@ -54,6 +56,7 @@ async function main() {
 			promptName: agentName,
 			promptDescription: template.frontmatter.description,
 			tools: toolNames,
+			subagents: template.frontmatter.subagents,
 			logFile: sessionLog?.logFile ?? null,
 			recent,
 			sessionId: sessionLog?.sessionId ?? null,
@@ -71,6 +74,10 @@ async function main() {
 	// readline, not `console`: line editing, history and paste handling, and it
 	// still reads piped input so scripted runs behave the same way.
 	const rl = createInput();
+	// Subagents ask their questions on this same interface: a second one would
+	// fight it for stdin and end the REPL when the subagent finished.
+	setSharedInput(rl);
+	const askUser = createAskUser(rl);
 
 	for await (const raw of rl) {
 		const input = raw.trim();
@@ -91,6 +98,8 @@ async function main() {
 				agentName,
 				stats,
 				tools: toolNames,
+				subagents: template.frontmatter.subagents,
+				promptDir: PROMPT_DIR,
 			};
 			const result = runCommand(command, context);
 			console.log(result.output);
@@ -126,8 +135,12 @@ async function main() {
 			agentName,
 			session,
 			sessionLog,
-			// The spinner is created once and reused: it idles silently between turns.
-			{ spinner },
+			{
+				// The spinner is created once and reused: it idles silently between turns.
+				spinner,
+				promptDir: PROMPT_DIR,
+				askUser,
+			},
 		);
 
 		history.length = 0;
@@ -149,6 +162,7 @@ async function main() {
 
 	// The prompt was written without a newline; end the line before exiting.
 	process.stdout.write("\n");
+	setSharedInput(null);
 	rl.close();
 }
 
