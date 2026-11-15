@@ -8,6 +8,7 @@ import {
 	listLogFiles,
 	loadSessionHistory,
 	readLogEntries,
+	recentSessions,
 	SessionLogger,
 	sessionLogFileName,
 } from "../src/lib/logger";
@@ -196,5 +197,75 @@ describe("session lookup", () => {
 
 	test("loadSessionHistory of an unknown session is empty", () => {
 		expect(loadSessionHistory(dir, "ghost")).toEqual([]);
+	});
+});
+
+describe("recentSessions", () => {
+	test("summarises each session with its agent, message count and first user message", () => {
+		const logger = new SessionLogger(join(dir, "a.jsonl"), "sess-1", null, "default");
+		logger.log({ role: "system", content: "system prompt" });
+		logger.log({ role: "user", content: "please   refactor the parser" });
+
+		const [summary] = recentSessions(dir);
+		expect(summary.sessionId).toBe("sess-1");
+		expect(summary.agentName).toBe("default");
+		expect(summary.messages).toBe(2);
+		// Whitespace is flattened so the one-line preview stays readable.
+		expect(summary.preview).toBe("please refactor the parser");
+	});
+
+	test("groups a session's entries across files and counts every message once", () => {
+		const early = new SessionLogger(join(dir, "2025-04-15-09-05.jsonl"), "sess-1");
+		early.log({ role: "user", content: "first" });
+		const late = new SessionLogger(join(dir, "2025-04-15-14-23.jsonl"), "sess-1");
+		late.log({ role: "assistant", content: "second" });
+
+		const summaries = recentSessions(dir);
+		expect(summaries).toHaveLength(1);
+		expect(summaries[0].messages).toBe(2);
+		expect(summaries[0].lastActivity > "2025").toBe(true);
+	});
+
+	test("sorts by newest activity first", () => {
+		const old = new SessionLogger(join(dir, "2025-04-15-09-05.jsonl"), "old-session");
+		old.log({ role: "user", content: "old" });
+		const fresh = new SessionLogger(join(dir, "2025-04-15-14-23.jsonl"), "new-session");
+		fresh.log({ role: "user", content: "new" });
+
+		// The second write is the most recent, so it must come first.
+		expect(recentSessions(dir).map((s) => s.sessionId)).toEqual(["new-session", "old-session"]);
+	});
+
+	test("honours the limit", () => {
+		for (let i = 0; i < 4; i++) {
+			new SessionLogger(join(dir, "2025-04-15-09-0".concat(`${i}`, ".jsonl")), `sess-${i}`).log({
+				role: "user",
+				content: `q${i}`,
+			});
+		}
+		expect(recentSessions(dir, 2)).toHaveLength(2);
+	});
+
+	test("long previews are truncated with an ellipsis", () => {
+		const logger = new SessionLogger(join(dir, "b.jsonl"), "sess-1");
+		logger.log({ role: "user", content: "x".repeat(200) });
+
+		const preview = recentSessions(dir)[0].preview;
+		expect(preview.endsWith("…")).toBe(true);
+		expect(preview.length).toBeLessThanOrEqual(61);
+	});
+
+	test("a session with no user text still gets a summary with an empty preview", () => {
+		const logger = new SessionLogger(join(dir, "c.jsonl"), "sess-1");
+		logger.log({ role: "system", content: "system prompt" });
+
+		const [summary] = recentSessions(dir);
+		expect(summary.preview).toBe("");
+		expect(summary.messages).toBe(1);
+	});
+
+	test("an empty or missing log dir yields no sessions", () => {
+		expect(recentSessions(dir)).toEqual([]);
+		expect(recentSessions(join(dir, "missing"))).toEqual([]);
 	});
 });

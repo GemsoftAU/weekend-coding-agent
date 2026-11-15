@@ -279,6 +279,9 @@ export async function searchFiles(
 	const argv = ["rg", "-n", "--no-heading", "--color", "never"];
 	// Never surface secret files, even when they sit inside a searched directory.
 	argv.push("-g", `!${SECRET_FILE}`, "-g", `!${SECRET_FILE}.*`);
+	// Vendor code is noise, and it is enormous. Excluded by glob rather than by
+	// .gitignore, so the behaviour does not depend on how a project is configured.
+	if (!includeNodeModules) argv.push("-g", "!node_modules", "-g", "!node_modules/**");
 	if (includeNodeModules) argv.push("-u");
 	argv.push("--", query, searchPath);
 

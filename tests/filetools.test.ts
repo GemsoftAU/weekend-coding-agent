@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeTool } from "../src/tools";
@@ -188,6 +188,28 @@ describe("search_files", () => {
 	test("secret files stay unreadable through the search tool", async () => {
 		const out = await executeTool("search_files", { query: "OPENROUTER", path: SECRET_PATH });
 		expect(out).toContain("Security Policy Violation");
+	});
+
+	test("node_modules is skipped by default, even when it is the search path", async () => {
+		const dir = sandbox();
+		mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+		writeFileSync(join(dir, "node_modules", "pkg", "index.ts"), "export const vendorSymbol = 1;\n");
+
+		const out = await executeTool("search_files", { query: "vendorSymbol", path: dir });
+		expect(out).toBe("No matches found.");
+	});
+
+	test("includeNodeModules opts back in", async () => {
+		const dir = sandbox();
+		mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+		writeFileSync(join(dir, "node_modules", "pkg", "index.ts"), "export const vendorSymbol = 1;\n");
+
+		const out = await executeTool("search_files", {
+			query: "vendorSymbol",
+			path: dir,
+			includeNodeModules: true,
+		});
+		expect(out).toContain("vendorSymbol");
 	});
 });
 

@@ -145,3 +145,56 @@ export function loadSessionHistory(logDir: string, sessionId: string): Message[]
 		.filter((entry) => entry.sessionId === sessionId)
 		.map((entry) => entry.message);
 }
+
+/** One saved session, summarised for the startup screen and /list. */
+export interface RecentSession {
+	sessionId: string;
+	agentName: string;
+	/** Number of logged messages in the session. */
+	messages: number;
+	/** Timestamp of the newest entry, ISO 8601. */
+	lastActivity: string;
+	/** First user message, flattened and shortened, for recognising the session. */
+	preview: string;
+}
+
+function previewText(text: string, max = 60): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/**
+ * Summarise every session in the log directory, newest activity first. Sessions
+ * are grouped by id because one file can hold several (subagents, forks); the
+ * entry count is the number of logged messages, not files.
+ */
+export function recentSessions(logDir: string, limit = 5): RecentSession[] {
+	const byId = new Map<string, RecentSession>();
+	for (const file of listLogFiles(logDir)) {
+		for (const entry of readLogEntries(file)) {
+			const existing = byId.get(entry.sessionId);
+			const isUserText =
+				entry.message.role === "user" && (entry.message.content ?? "").trim() !== "";
+			if (!existing) {
+				byId.set(entry.sessionId, {
+					sessionId: entry.sessionId,
+					agentName: entry.agentName,
+					messages: 1,
+					lastActivity: entry.timestamp,
+					preview: isUserText ? previewText(entry.message.content ?? "") : "",
+				});
+				continue;
+			}
+			existing.messages++;
+			if (entry.timestamp > existing.lastActivity) existing.lastActivity = entry.timestamp;
+			// Keep the first user message: it is what the session was about.
+			if (existing.preview === "" && isUserText) {
+				existing.preview = previewText(entry.message.content ?? "");
+			}
+		}
+	}
+
+	return [...byId.values()]
+		.sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1))
+		.slice(0, limit);
+}

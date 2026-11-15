@@ -2,11 +2,13 @@ import { join } from "node:path";
 import { runTurn } from "./agent";
 import { fetchModelStats, MODEL } from "./lib/api";
 import { type CommandContext, parseCommand, runCommand } from "./lib/commands";
-import { createSessionLogger, type SessionLog } from "./lib/logger";
+import { createInput, isExitLine } from "./lib/input";
+import { createSessionLogger, recentSessions, type SessionLog } from "./lib/logger";
 import { loadPrompt } from "./lib/prompts";
 import { createSession } from "./lib/session";
 import { createSpinner } from "./lib/spinner";
 import type { Message } from "./lib/types";
+import { formatAgentPrompt, formatSplash, formatTurnStatus } from "./lib/ui";
 import { selectTools } from "./tools";
 
 const LOG_DIR = join(process.cwd(), ".session_logs");
@@ -31,34 +33,52 @@ async function main() {
 		console.error(`[log] session logging disabled: ${(e as Error).message}`);
 	}
 
-	console.log("AI Coding Assistant (type 'exit' to quit, /help for commands)");
-	console.log(`Prompt: ${agentName} | Tools: ${toolNames.join(", ")}`);
-	if (stats) {
-		console.log(`Model: ${stats.name}`);
-		console.log(
-			`Cost: $${(stats.cost.prompt * 1_000_000).toFixed(3)} per 1M input tokens, ` +
-				`$${(stats.cost.completion * 1_000_000).toFixed(3)} per 1M output tokens`,
-		);
-		if (stats.contextLength > 0) {
-			console.log(`Context window: ${(stats.contextLength / 1_000).toFixed(0)}K tokens`);
-		}
-	} else {
-		console.log(`Model: ${MODEL} (stats not found)`);
-	}
-	if (sessionLog) console.log(`Logging to: ${sessionLog.logFile}`);
-	console.log();
-
-	const history: Message[] = [{ role: "system", content: template.body }];
 	// The system prompt is part of the record: a log you cannot replay is not a log.
+	const history: Message[] = [{ role: "system", content: template.body }];
 	sessionLog?.log(history[0]);
+
+	// The recent-session list is decoration, not state: a broken log dir must
+	// not stop startup, so failures degrade to an empty list. It is read after
+	// the system prompt is logged so this session appears in the list, marked.
+	let recent: ReturnType<typeof recentSessions> = [];
+	try {
+		recent = recentSessions(LOG_DIR, 5);
+	} catch {
+		recent = [];
+	}
+
+	console.log(
+		formatSplash({
+			model: MODEL,
+			stats,
+			promptName: agentName,
+			promptDescription: template.frontmatter.description,
+			tools: toolNames,
+			logFile: sessionLog?.logFile ?? null,
+			recent,
+			sessionId: sessionLog?.sessionId ?? null,
+		}),
+	);
+	console.log();
 
 	// Only animates on a TTY; piped or redirected output gains no escape codes.
 	const spinner = createSpinner();
 
-	for await (const line of console) {
-		const input = line.trim();
-		if (input === "") continue;
-		if (input === "exit") break;
+	// Label the first prompt too, so it is always clear which agent is listening.
+	const prompt = () => process.stdout.write(formatAgentPrompt(agentName));
+	prompt();
+
+	// readline, not `console`: line editing, history and paste handling, and it
+	// still reads piped input so scripted runs behave the same way.
+	const rl = createInput();
+
+	for await (const raw of rl) {
+		const input = raw.trim();
+		if (input === "") {
+			prompt();
+			continue;
+		}
+		if (isExitLine(input)) break;
 
 		const command = parseCommand(input);
 		if (command) {
@@ -89,6 +109,7 @@ async function main() {
 				if (systemPrompt) sessionLog.log(systemPrompt);
 			}
 			if (result.exit) break;
+			prompt();
 			continue;
 		}
 
@@ -113,10 +134,22 @@ async function main() {
 		history.push(...result.messages);
 
 		console.log(
-			`[${agentName}] tokens in/out: ${result.usage.prompt_tokens}/${result.usage.completion_tokens}`,
+			formatTurnStatus({
+				agentName,
+				model: MODEL,
+				stats,
+				usage: result.usage,
+				session,
+				messages: history.filter((m) => m.role !== "system").length,
+			}),
 		);
 		console.log();
+		prompt();
 	}
+
+	// The prompt was written without a newline; end the line before exiting.
+	process.stdout.write("\n");
+	rl.close();
 }
 
 main().catch((error) => {

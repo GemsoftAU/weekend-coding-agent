@@ -216,6 +216,74 @@ describe("runTurn", () => {
 
 		expect(lines.indexOf("Done.")).toBeLessThan(lines.findIndex((l) => l.startsWith("[Session]")));
 	});
+
+	test("shows reasoning details before the tool call they explain", async () => {
+		const reasoningReply: CompletionResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						reasoning_details: [{ text: "I should look at the directory first." }],
+						tool_calls: [
+							{
+								id: "call_r",
+								type: "function",
+								function: { name: "list_files", arguments: '{"path":"src"}' },
+							},
+						],
+					},
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1 },
+		};
+		const api = scriptedApi([reasoningReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn([], api.caller, async () => "agent.ts", undefined, logger);
+
+		const reasoningAt = lines.findIndex((l) => l.startsWith("[Reasoning]:"));
+		const callAt = lines.findIndex((l) => l.startsWith("[Tool: list_files]"));
+		expect(reasoningAt).toBeGreaterThanOrEqual(0);
+		expect(lines[reasoningAt]).toContain("I should look at the directory first.");
+		expect(reasoningAt).toBeLessThan(callAt);
+	});
+
+	test("omits the reasoning line when the model provides none", async () => {
+		const api = scriptedApi([textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn([], api.caller, async () => "x", undefined, logger);
+
+		expect(lines.some((l) => l.startsWith("[Reasoning]:"))).toBe(false);
+	});
+
+	test("labels non-bash tool calls with their name and arguments", async () => {
+		const readReply: CompletionResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						tool_calls: [
+							{
+								id: "call_f",
+								type: "function",
+								function: { name: "read_file", arguments: '{"path":"src/agent.ts"}' },
+							},
+						],
+					},
+				},
+			],
+		};
+		const api = scriptedApi([readReply, textReply]);
+		const lines: string[] = [];
+		const logger: Logger = { info: (m) => lines.push(m), error: () => {} };
+
+		await runTurn([], api.caller, async () => "body", undefined, logger);
+
+		expect(lines).toContain('[Tool: read_file] {"path":"src/agent.ts"}');
+	});
 });
 
 describe("runTurn spinner", () => {
@@ -372,6 +440,29 @@ describe("runTurn session logging", () => {
 			null,
 		);
 		expect(result.messages.at(-1)?.content).toBe("Done.");
+	});
+
+	test("a long tool result is collapsed in the terminal but kept whole in the log", async () => {
+		const api = scriptedApi([toolCallReply, textReply]);
+		const lines: string[] = [];
+		const memory = memoryLog();
+		const longOutput = Array.from({ length: 40 }, (_, i) => `row ${i}`).join("\n");
+
+		await runTurn(
+			[],
+			api.caller,
+			async () => longOutput,
+			undefined,
+			{ info: (m) => lines.push(m), error: () => {} },
+			"default",
+			null,
+			memory.log,
+		);
+
+		const collapsed = lines.find((l) => l.includes("collapsed"));
+		expect(collapsed).toBeDefined();
+		// The model still receives (and the log still records) the full result.
+		expect(memory.entries[1].message.content).toBe(longOutput);
 	});
 
 	test("the log mirrors the final history, minus the user message runTurn was given", async () => {

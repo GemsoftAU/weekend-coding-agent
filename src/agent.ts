@@ -12,6 +12,7 @@ import {
 } from "./lib/session";
 import type { Spinner } from "./lib/spinner";
 import type { ApiCaller, Logger, Message, ToolExecutor, ToolSchema, TurnResult } from "./lib/types";
+import { formatReasoning, formatToolCall, formatToolResult } from "./lib/ui";
 import { executeTool, TOOLS } from "./tools";
 
 export interface RunTurnOptions {
@@ -59,6 +60,10 @@ export async function runTurn(
 
 		const m = response.choices[0].message;
 
+		// Show the model's thinking before its action: it explains the tool call.
+		const reasoning = formatReasoning(m.reasoning_details);
+		if (reasoning) logger?.info(reasoning);
+
 		if (m.tool_calls && m.tool_calls.length > 0) {
 			currentMessages.push({
 				role: "assistant",
@@ -67,7 +72,7 @@ export async function runTurn(
 			});
 
 			for (const toolCall of m.tool_calls) {
-				logger?.info(`$ ${toolCall.function.name} ${toolCall.function.arguments}`);
+				logger?.info(formatToolCall(toolCall.function.name, toolCall.function.arguments));
 			}
 
 			// The assistant tool_calls message, then each result, in call order.
@@ -82,7 +87,7 @@ export async function runTurn(
 					} catch (e: unknown) {
 						content = `Tool error: ${(e as Error).message}`;
 					}
-					logger?.info(content);
+					logger?.info(formatToolResult(content));
 					return {
 						role: "tool" as const,
 						tool_call_id: toolCall.id,
