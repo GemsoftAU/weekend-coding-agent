@@ -1,0 +1,24 @@
+[models.triage]
+default_model = false
+model_id = "opencode-go/deepseek-v4.1-flash"
+reasoning_effort = "low"
+
+[models.planner]
+default_model = false
+model_id = "claude-fable-5-2"
+reasoning_effort = "max"
+
+[models.coder]
+default_model = true
+model_id = "gpt-5.1-codex-max"
+reasoning_effort = "max"
+
+[models.writer]
+default_model = true
+model_id = "gemini-4-hydrogen"
+reasoning_effort = "max"
+
+[models.qa]
+default_model = true
+model_id = "gpt-5.1-codex-max"
+reasoning_effort = "max"

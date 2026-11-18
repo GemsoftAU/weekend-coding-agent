@@ -44,6 +44,29 @@
         "[jsonc]": {
           "editor.defaultFormatter": "biomejs.biome"
         }
+      },
+      "launch": {
+        "version": "0.2.0",
+        "configurations": [
+          {
+            "name": "Attach to Interactive Agent (CLI stdin)",
+            "type": "bun",
+            "request": "attach",
+            "url": "ws://localhost:6499/",
+            "stopOnEntry": false
+          },
+          {
+            "name": "Launch Agent (Single Prompt / Non-Interactive)",
+            "type": "bun",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/index.ts",
+            "args": ["List the files in src/ and summarize what index.ts does"],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "stopOnEntry": false,
+            "watchMode": false
+          }
+        ]
       }
     }
   },
